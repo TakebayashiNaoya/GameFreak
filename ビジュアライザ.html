@@ -1,0 +1,1084 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Visualizer</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            min-height: 100vh;
+            color: #fff;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1450px;
+            margin: 0 auto;
+        }
+        h1 {
+            text-align: center;
+            margin-bottom: 20px;
+            color: #ffcb05;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+        }
+        .file-section {
+            background: rgba(255,255,255,0.1);
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+        }
+        .file-row {
+            display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        .file-row label {
+            min-width: 150px;
+        }
+        .file-select {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        select, button, input[type="number"] {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 5px;
+            font-size: 14px;
+        }
+        select {
+            background: #fff;
+            color: #333;
+            min-width: 200px;
+        }
+        button {
+            background: #ffcb05;
+            color: #333;
+            cursor: pointer;
+            font-weight: bold;
+            transition: transform 0.1s, background 0.2s;
+        }
+        button:hover {
+            background: #ffd740;
+            transform: scale(1.02);
+        }
+        button:disabled {
+            background: #666;
+            cursor: not-allowed;
+            transform: none;
+        }
+        .controls {
+            background: rgba(255,255,255,0.1);
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+        }
+        .control-row {
+            display: flex;
+            gap: 15px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        .seek-container {
+            flex: 1;
+            min-width: 300px;
+        }
+        input[type="range"] {
+            width: 100%;
+            height: 8px;
+            border-radius: 4px;
+            background: #444;
+            outline: none;
+            cursor: pointer;
+        }
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: #ffcb05;
+            cursor: pointer;
+        }
+        .turn-input {
+            display: flex;
+            gap: 5px;
+            align-items: center;
+        }
+        input[type="number"] {
+            width: 80px;
+            text-align: center;
+        }
+        .info-panel {
+            background: rgba(255,255,255,0.1);
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+        }
+        .info-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+        }
+        .info-item {
+            background: rgba(0,0,0,0.3);
+            padding: 10px;
+            border-radius: 5px;
+        }
+        .info-label {
+            font-size: 12px;
+            color: #aaa;
+        }
+        .info-value {
+            font-size: 18px;
+            font-weight: bold;
+            color: #ffcb05;
+        }
+        .main-content {
+            display: grid;
+            grid-template-columns: 250px 1fr;
+            gap: 20px;
+        }
+        .party-section {
+            background: rgba(255,255,255,0.1);
+            padding: 15px;
+            border-radius: 10px;
+        }
+        .party-section h3 {
+            margin-bottom: 15px;
+            color: #ffcb05;
+            border-bottom: 2px solid #ffcb05;
+            padding-bottom: 5px;
+        }
+        .party-pokemon {
+            background: rgba(0,0,0,0.3);
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 10px;
+        }
+        .party-pokemon.initial {
+            border-left: 4px solid #4CAF50;
+        }
+        .party-pokemon.caught {
+            border-left: 4px solid #2196F3;
+        }
+        .pokemon-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+        .pokemon-id {
+            font-weight: bold;
+            font-size: 14px;
+        }
+        .move-info {
+            font-size: 11px;
+            color: #aaa;
+        }
+        .move-row {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 4px;
+            padding: 4px 8px;
+            background: rgba(255,255,255,0.05);
+            border-radius: 4px;
+        }
+        .move-name {
+            color: #ddd;
+            font-size: 14px;
+        }
+        .move-uses {
+            color: #ffcb05;
+            font-weight: bold;
+            font-size: 14px;
+        }
+        .move-uses.depleted {
+            color: #f44336;
+        }
+        .wild-section {
+            background: rgba(255,255,255,0.1);
+            padding: 15px;
+            border-radius: 10px;
+        }
+        .wild-section h3 {
+            margin-bottom: 15px;
+            color: #ffcb05;
+            border-bottom: 2px solid #ffcb05;
+            padding-bottom: 5px;
+        }
+        .wild-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+            gap: 4px;
+            height: 700px;
+            overflow-y: auto;
+        }
+        .wild-pokemon {
+            background: rgba(0,0,0,0.3);
+            padding: 4px 6px;
+            border-radius: 4px;
+            font-size: 11px;
+            display: flex;
+            align-items: center;
+        }
+        .wild-pokemon.alive {
+            border: 2px solid #4CAF50;
+        }
+        .wild-pokemon.catchable {
+            border: 2px solid #ffcb05;
+            animation: pulse 1s infinite;
+        }
+        .wild-pokemon.fainted {
+            border: 2px solid #f44336;
+            opacity: 0.6;
+        }
+        .wild-pokemon.caught {
+            border: 2px solid #2196F3;
+            opacity: 0.7;
+        }
+        .wild-pokemon.boxed {
+            border: 2px solid #9c27b0;
+            opacity: 0.5;
+        }
+        @keyframes pulse {
+            0%, 100% { box-shadow: 0 0 5px #ffcb05; }
+            50% { box-shadow: 0 0 15px #ffcb05; }
+        }
+        .wild-id {
+            font-weight: bold;
+            min-width: 25px;
+        }
+        .hp-bar-wrapper {
+            flex: 1;
+            height: 16px;
+            position: relative;
+        }
+        .hp-bar-container {
+            position: absolute;
+            left: 0;
+            top: 0;
+            height: 100%;
+            background: #555;
+            border-radius: 3px;
+        }
+        .hp-bar-catchable {
+            position: absolute;
+            left: 0;
+            top: 0;
+            height: 100%;
+            background: rgba(255,255,255,0.15);
+            z-index: 1;
+        }
+        .hp-bar {
+            position: absolute;
+            left: 0;
+            top: 0;
+            height: 100%;
+            transition: width 0.3s;
+            z-index: 2;
+        }
+        .hp-bar.above-catch { background: #4CAF50; }
+        .hp-bar.below-catch { background: #f44336; }
+        .hp-bar-catch-marker {
+            position: absolute;
+            top: 0;
+            width: 2px;
+            height: 100%;
+            z-index: 3;
+        }
+        .hp-bar-catch-marker.marker-red { background: #f44336; }
+        .hp-bar-catch-marker.marker-green { background: #4CAF50; }
+        .hp-text {
+            position: absolute;
+            left: 50%;
+            top: 0;
+            height: 100%;
+            transform: translateX(-50%);
+            display: flex;
+            align-items: center;
+            font-size: 11px;
+            font-weight: bold;
+            color: #fff;
+            text-shadow: 1px 1px 1px #000, -1px -1px 1px #000, 1px -1px 1px #000, -1px 1px 1px #000;
+            z-index: 4;
+            white-space: nowrap;
+        }
+        .action-log {
+            background: rgba(255,255,255,0.1);
+            padding: 15px;
+            border-radius: 10px;
+            margin-top: 20px;
+        }
+        .action-log h3 {
+            margin-bottom: 10px;
+            color: #ffcb05;
+        }
+        .log-content {
+            min-height: 30px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+            background: rgba(0,0,0,0.3);
+            padding: 5px 10px;
+            border-radius: 5px;
+            margin-bottom: 10px;
+        }
+        .log-entry {
+            padding: 2px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+        .log-entry.attack { color: #f44336; }
+        .log-entry.catch { color: #2196F3; }
+        .log-entry.box { color: #9c27b0; }
+        .log-entry.invalid { color: #ff6b6b; }
+        .legend {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 10px;
+            flex-wrap: wrap;
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            font-size: 12px;
+        }
+        .legend-color {
+            width: 16px;
+            height: 16px;
+            border-radius: 3px;
+        }
+        .legend-color.alive { border: 2px solid #4CAF50; background: rgba(76,175,80,0.3); }
+        .legend-color.catchable { border: 2px solid #ffcb05; background: rgba(255,203,5,0.3); }
+        .legend-color.fainted { border: 2px solid #f44336; background: rgba(244,67,54,0.3); }
+        .legend-color.caught { border: 2px solid #2196F3; background: rgba(33,150,243,0.3); }
+        .legend-color.boxed { border: 2px solid #9c27b0; background: rgba(156,39,176,0.3); }
+        .speed-control {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        .speed-control select {
+            min-width: 80px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="file-section">
+            <div class="file-row">
+                <label>入力ディレクトリ (*.txt):</label>
+                <div class="file-select">
+                    <input type="file" id="inputDir" webkitdirectory directory multiple style="display:none">
+                    <button onclick="document.getElementById('inputDir').click()">入力ディレクトリを選択</button>
+                    <span id="inputDirName">未選択</span>
+                </div>
+            </div>
+            <div class="file-row">
+                <label>出力ディレクトリ (*.out):</label>
+                <div class="file-select">
+                    <input type="file" id="outputDir" webkitdirectory directory multiple style="display:none">
+                    <button onclick="document.getElementById('outputDir').click()">出力ディレクトリを選択</button>
+                    <span id="outputDirName">未選択</span>
+                </div>
+            </div>
+            <div class="file-row">
+                <label>ファイル選択:</label>
+                <select id="fileSelect" disabled onchange="loadSelectedFile()">
+                    <option value="">-- ファイルを選択 --</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="controls">
+            <div class="control-row">
+                <button id="prevBtn" disabled onclick="prevTurn()">&#9664; 前へ</button>
+                <button id="playBtn" disabled onclick="togglePlay()">&#9654; 再生</button>
+                <button id="nextBtn" disabled onclick="nextTurn()">次へ &#9654;</button>
+                <div class="seek-container">
+                    <input type="range" id="seekBar" min="0" max="0" value="0" disabled oninput="seekTo(this.value)">
+                </div>
+                <div class="turn-input">
+                    <label>ターン:</label>
+                    <input type="number" id="turnInput" min="0" max="0" value="0" disabled onchange="seekTo(this.value)">
+                    <span id="maxTurn">/ 0</span>
+                </div>
+                <div class="speed-control">
+                    <label>速度:</label>
+                    <select id="speedSelect">
+                        <option value="1000">0.5x</option>
+                        <option value="500" selected>1x</option>
+                        <option value="250">2x</option>
+                        <option value="100">5x</option>
+                        <option value="50">10x</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+
+        <div class="info-panel">
+            <div class="info-grid">
+                <div class="info-item">
+                    <div class="info-label">現在のターン</div>
+                    <div class="info-value" id="currentTurn">0</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">最終経験値</div>
+                    <div class="info-value" id="finalExp">0</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">合計経験値</div>
+                    <div class="info-value" id="totalExp">0</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">ひんし状態のポケモン</div>
+                    <div class="info-value" id="faintedCount">0</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">手持ちの数</div>
+                    <div class="info-value" id="partySize">1 / 6</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="main-content">
+            <div class="party-section">
+                <h3>手持ちポケモン</h3>
+                <div id="partyList"></div>
+            </div>
+            <div class="wild-section">
+                <h3>野生のポケモン</h3>
+                <div class="legend">
+                    <div class="legend-item"><div class="legend-color alive"></div> 野生</div>
+                    <div class="legend-item"><div class="legend-color catchable"></div> 野生 (捕まえられる)</div>
+                    <div class="legend-item"><div class="legend-color fainted"></div> ひんし</div>
+                    <div class="legend-item"><div class="legend-color caught"></div> 手持ち</div>
+                    <div class="legend-item"><div class="legend-color boxed"></div> ボックスに預けた</div>
+                </div>
+                <div class="log-content" id="logContent"></div>
+                <div class="wild-grid" id="wildGrid"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Global state
+        let inputFiles = {};
+        let outputFiles = {};
+        let currentInput = null;
+        let currentOutput = null;
+        let gameState = null;
+        let currentTurn = 0;
+        let isPlaying = false;
+        let playInterval = null;
+
+        // File handling
+        document.getElementById('inputDir').addEventListener('change', (e) => {
+            inputFiles = {};
+            for (const file of e.target.files) {
+                if (file.name.endsWith('.txt')) {
+                    const baseName = file.name.replace('.txt', '');
+                    inputFiles[baseName] = file;
+                }
+            }
+            document.getElementById('inputDirName').textContent =
+                `${Object.keys(inputFiles).length} ファイル`;
+            updateFileSelect();
+        });
+
+        document.getElementById('outputDir').addEventListener('change', (e) => {
+            outputFiles = {};
+            for (const file of e.target.files) {
+                if (file.name.endsWith('.out')) {
+                    const baseName = file.name.replace('.out', '');
+                    outputFiles[baseName] = file;
+                }
+            }
+            document.getElementById('outputDirName').textContent =
+                `${Object.keys(outputFiles).length} ファイル`;
+            updateFileSelect();
+        });
+
+        function updateFileSelect() {
+            const select = document.getElementById('fileSelect');
+            select.innerHTML = '<option value="">-- ファイルを選択 --</option>';
+
+            const commonFiles = Object.keys(inputFiles).filter(k => outputFiles[k]);
+            commonFiles.sort((a, b) => {
+                const numA = parseInt(a.match(/\d+/)?.[0] || '0');
+                const numB = parseInt(b.match(/\d+/)?.[0] || '0');
+                return numA - numB;
+            });
+
+            for (const name of commonFiles) {
+                const option = document.createElement('option');
+                option.value = name;
+                option.textContent = name;
+                select.appendChild(option);
+            }
+
+            select.disabled = commonFiles.length === 0;
+
+            // Auto-load first file if both directories are selected
+            if (commonFiles.length > 0) {
+                select.value = commonFiles[0];
+                loadSelectedFile();
+            }
+        }
+
+        async function loadSelectedFile() {
+            const fileName = document.getElementById('fileSelect').value;
+            if (!fileName) return;
+
+            const inputFile = inputFiles[fileName];
+            const outputFile = outputFiles[fileName];
+
+            const inputText = await inputFile.text();
+            const outputText = await outputFile.text();
+
+            parseInput(inputText);
+            parseOutput(outputText);
+            initializeGame();
+            calculateFinalExp();
+        }
+
+        function parseInput(text) {
+            const lines = text.trim().split('\n');
+            const N = parseInt(lines[0]);
+
+            currentInput = {
+                N: N,
+                pokemon: [],
+                initialMoves: []
+            };
+
+            for (let i = 1; i <= N; i++) {
+                const parts = lines[i].split(/\s+/).map(Number);
+                currentInput.pokemon.push({
+                    H: parts[0],
+                    C: parts[1],
+                    V: parts[2],
+                    moves: [
+                        { A: parts[3], B: parts[4] },
+                        { A: parts[5], B: parts[6] }
+                    ]
+                });
+            }
+
+            const lastLine = lines[N + 1].split(/\s+/).map(Number);
+            currentInput.initialMoves = [
+                { X: lastLine[0], Y: lastLine[1] },
+                { X: lastLine[2], Y: lastLine[3] }
+            ];
+        }
+
+        function parseOutput(text) {
+            const lines = text.split('\n');
+            currentOutput = [];
+
+            for (const line of lines) {
+                if (!line.trim()) continue;
+                const rawParts = line.trim().split(/\s+/);
+                const parts = rawParts.map((v) => Number(v));
+
+                if (parts.some((v, idx) => !Number.isFinite(v) || !Number.isInteger(v) || rawParts[idx].match(/^[+-]?\d+$/) === null)) {
+                    currentOutput.push({
+                        type: 'invalid',
+                        message: '出力フォーマットが不正です。整数以外の値が含まれています。'
+                    });
+                    continue;
+                }
+
+                const actionType = parts[0];
+
+                if (actionType === 1) {
+                    if (parts.length !== 4) {
+                        currentOutput.push({
+                            type: 'invalid',
+                            message: '出力フォーマットが不正です。技を出す行動は4つの整数が必要です。'
+                        });
+                        continue;
+                    }
+                    currentOutput.push({
+                        type: 'attack',
+                        p: parts[1],
+                        t: parts[2],
+                        m: parts[3]
+                    });
+                } else if (actionType === 2) {
+                    if (parts.length !== 2) {
+                        currentOutput.push({
+                            type: 'invalid',
+                            message: '出力フォーマットが不正です。捕まえる行動は2つの整数が必要です。'
+                        });
+                        continue;
+                    }
+                    currentOutput.push({
+                        type: 'catch',
+                        t: parts[1]
+                    });
+                } else if (actionType === 3) {
+                    if (parts.length !== 2) {
+                        currentOutput.push({
+                            type: 'invalid',
+                            message: '出力フォーマットが不正です。ボックスに預ける行動は2つの整数が必要です。'
+                        });
+                        continue;
+                    }
+                    currentOutput.push({
+                        type: 'box',
+                        p: parts[1]
+                    });
+                } else {
+                    currentOutput.push({
+                        type: 'invalid',
+                        message: `不明な行動です: ${actionType}`
+                    });
+                }
+            }
+        }
+
+        function initializeGame() {
+            gameState = {
+                turn: 0,
+                totalExp: 0,
+                party: new Set([0]),
+                boxed: new Set(),
+                wild: [],
+                partyMoves: {},
+                invalid: false,
+                invalidTurn: null,
+                invalidMessage: ''
+            };
+
+            // Initialize wild pokemon
+            for (let i = 0; i < currentInput.N; i++) {
+                const p = currentInput.pokemon[i];
+                gameState.wild.push({
+                    id: i + 1,
+                    hp: p.H,
+                    maxHp: p.H,
+                    catchThreshold: p.C,
+                    exp: p.V,
+                    status: 'alive',
+                    moves: [
+                        { damage: p.moves[0].A, uses: p.moves[0].B, maxUses: p.moves[0].B },
+                        { damage: p.moves[1].A, uses: p.moves[1].B, maxUses: p.moves[1].B }
+                    ]
+                });
+            }
+
+            // Initialize initial pokemon moves
+            gameState.partyMoves[0] = [
+                { damage: currentInput.initialMoves[0].X, uses: currentInput.initialMoves[0].Y, maxUses: currentInput.initialMoves[0].Y },
+                { damage: currentInput.initialMoves[1].X, uses: currentInput.initialMoves[1].Y, maxUses: currentInput.initialMoves[1].Y }
+            ];
+
+            currentTurn = 0;
+            updateControls();
+            render();
+        }
+
+        function updateControls() {
+            const maxTurn = currentOutput ? currentOutput.length : 0;
+
+            document.getElementById('seekBar').max = maxTurn;
+            document.getElementById('seekBar').value = currentTurn;
+            document.getElementById('seekBar').disabled = !currentOutput;
+
+            document.getElementById('turnInput').max = maxTurn;
+            document.getElementById('turnInput').value = currentTurn;
+            document.getElementById('turnInput').disabled = !currentOutput;
+
+            document.getElementById('maxTurn').textContent = `/ ${maxTurn}`;
+
+            document.getElementById('prevBtn').disabled = !currentOutput || currentTurn === 0;
+            document.getElementById('playBtn').disabled = !currentOutput;
+            document.getElementById('nextBtn').disabled = !currentOutput || currentTurn >= maxTurn;
+        }
+
+        function seekTo(turn) {
+            turn = parseInt(turn);
+            if (isNaN(turn) || turn < 0) turn = 0;
+            if (currentOutput && turn > currentOutput.length) turn = currentOutput.length;
+
+            // Reset and replay
+            initializeGameSilent();
+            for (let i = 0; i < turn; i++) {
+                applyAction(currentOutput[i]);
+            }
+            currentTurn = turn;
+            updateControls();
+            render();
+        }
+
+        function initializeGameSilent() {
+            gameState = {
+                turn: 0,
+                totalExp: 0,
+                party: new Set([0]),
+                boxed: new Set(),
+                wild: [],
+                partyMoves: {},
+                invalid: false,
+                invalidTurn: null,
+                invalidMessage: ''
+            };
+
+            for (let i = 0; i < currentInput.N; i++) {
+                const p = currentInput.pokemon[i];
+                gameState.wild.push({
+                    id: i + 1,
+                    hp: p.H,
+                    maxHp: p.H,
+                    catchThreshold: p.C,
+                    exp: p.V,
+                    status: 'alive',
+                    moves: [
+                        { damage: p.moves[0].A, uses: p.moves[0].B, maxUses: p.moves[0].B },
+                        { damage: p.moves[1].A, uses: p.moves[1].B, maxUses: p.moves[1].B }
+                    ]
+                });
+            }
+
+            gameState.partyMoves[0] = [
+                { damage: currentInput.initialMoves[0].X, uses: currentInput.initialMoves[0].Y, maxUses: currentInput.initialMoves[0].Y },
+                { damage: currentInput.initialMoves[1].X, uses: currentInput.initialMoves[1].Y, maxUses: currentInput.initialMoves[1].Y }
+            ];
+        }
+
+        function calculateFinalExp() {
+            // Save current state
+            const savedTurn = currentTurn;
+
+            // Simulate all turns to get final exp
+            initializeGameSilent();
+            for (let i = 0; i < currentOutput.length; i++) {
+                applyAction(currentOutput[i]);
+            }
+            const finalExp = gameState.totalExp;
+
+            // Restore to current turn
+            initializeGameSilent();
+            for (let i = 0; i < savedTurn; i++) {
+                applyAction(currentOutput[i]);
+            }
+            currentTurn = savedTurn;
+
+            // Display final exp
+            document.getElementById('finalExp').textContent = finalExp.toLocaleString();
+        }
+
+        function applyAction(action) {
+            if (gameState.invalid) {
+                gameState.turn++;
+                return;
+            }
+
+            const markInvalid = (message) => {
+                if (!gameState.invalid) {
+                    gameState.invalid = true;
+                    gameState.invalidTurn = gameState.turn + 1;
+                    gameState.invalidMessage = message;
+                }
+            };
+
+            if (action.type === 'invalid') {
+                markInvalid(action.message);
+                gameState.turn++;
+                return;
+            }
+
+            if (action.type === 'attack') {
+                const targetIdx = action.t - 1;
+                const moveIdx = action.m - 1;
+                const attacker = action.p;
+
+                if (attacker < 0 || attacker > currentInput.N) {
+                    markInvalid(`技を出すポケモンのインデックスが範囲外です: ${attacker} (有効範囲: 0-${currentInput.N})`);
+                    gameState.turn++;
+                    return;
+                }
+                if (action.t < 1 || action.t > currentInput.N) {
+                    markInvalid(`技を出す対象のポケモンのインデックスが範囲外です: ${action.t} (有効範囲: 1-${currentInput.N})`);
+                    gameState.turn++;
+                    return;
+                }
+                if (action.m < 1 || action.m > 2) {
+                    markInvalid(`技のインデックスが範囲外です: ${action.m} (有効範囲: 1-2)`);
+                    gameState.turn++;
+                    return;
+                }
+                if (!gameState.party.has(attacker)) {
+                    markInvalid(`手持ちにいないポケモンで技を出そうとしています: ${attacker}`);
+                    gameState.turn++;
+                    return;
+                }
+                if (gameState.party.has(action.t)) {
+                    markInvalid(`既に捕まえたポケモンに技を出そうとしています: ${action.t}`);
+                    gameState.turn++;
+                    return;
+                }
+                if (gameState.boxed.has(action.t)) {
+                    markInvalid(`ボックスに預けたポケモンに技を出そうとしています: ${action.t}`);
+                    gameState.turn++;
+                    return;
+                }
+                if (gameState.wild[targetIdx].hp <= 0) {
+                    markInvalid(`既にひんし状態のポケモンに技を出そうとしています: ${action.t}`);
+                    gameState.turn++;
+                    return;
+                }
+
+                if (gameState.partyMoves[attacker]) {
+                    const move = gameState.partyMoves[attacker][moveIdx];
+                    if (moveIdx < 0 || moveIdx >= gameState.partyMoves[attacker].length) {
+                        markInvalid(`技のインデックスが範囲外です: ${action.m} (有効範囲: 1-2)`);
+                        gameState.turn++;
+                        return;
+                    }
+                    if (move.uses > 0) {
+                        gameState.wild[targetIdx].hp -= move.damage;
+                        move.uses--;
+
+                        if (gameState.wild[targetIdx].hp <= 0) {
+                            gameState.wild[targetIdx].status = 'fainted';
+                            gameState.totalExp += gameState.wild[targetIdx].exp;
+                        }
+                    } else {
+                        markInvalid(`使用回数が残っていない技を出そうとしています: ポケモン ${attacker} の技 ${action.m}`);
+                        gameState.turn++;
+                        return;
+                    }
+                } else {
+                    markInvalid(`手持ちにいないポケモンで技を出そうとしています: ${attacker}`);
+                    gameState.turn++;
+                    return;
+                }
+            } else if (action.type === 'catch') {
+                const targetIdx = action.t - 1;
+                if (action.t < 1 || action.t > currentInput.N) {
+                    markInvalid(`捕まえる対象のポケモンのインデックスが範囲外です: ${action.t} (有効範囲: 1-${currentInput.N})`);
+                    gameState.turn++;
+                    return;
+                }
+                if (gameState.party.has(action.t)) {
+                    markInvalid(`既に捕まえたポケモンを捕まえようとしています: ${action.t}`);
+                    gameState.turn++;
+                    return;
+                }
+                if (gameState.boxed.has(action.t)) {
+                    markInvalid(`ボックスに預けたポケモンを捕まえようとしています: ${action.t}`);
+                    gameState.turn++;
+                    return;
+                }
+                if (gameState.party.size >= 6) {
+                    markInvalid('手持ちのポケモンが最大数を超えてしまいます。');
+                    gameState.turn++;
+                    return;
+                }
+                const targetHp = gameState.wild[targetIdx].hp;
+                const catchThreshold = currentInput.pokemon[targetIdx].C;
+                if (targetHp < 1 || targetHp > catchThreshold) {
+                    markInvalid(`HPが捕まえられる範囲外のポケモンを捕まえようとしています: ポケモン ${action.t} (HP: ${targetHp}, 捕まえられる範囲: 1-${catchThreshold})`);
+                    gameState.turn++;
+                    return;
+                }
+                gameState.wild[targetIdx].status = 'caught';
+                gameState.party.add(action.t);
+
+                // Add caught pokemon's moves
+                const p = currentInput.pokemon[targetIdx];
+                gameState.partyMoves[action.t] = [
+                    { damage: p.moves[0].A, uses: p.moves[0].B, maxUses: p.moves[0].B },
+                    { damage: p.moves[1].A, uses: p.moves[1].B, maxUses: p.moves[1].B }
+                ];
+            } else if (action.type === 'box') {
+                if (action.p < 0 || action.p > currentInput.N) {
+                    markInvalid(`ボックスに預けるポケモンのインデックスが範囲外です: ${action.p} (有効範囲: 0-${currentInput.N})`);
+                    gameState.turn++;
+                    return;
+                }
+                if (!gameState.party.has(action.p)) {
+                    markInvalid(`手持ちに存在しないポケモンをボックスに預けようとしています: ${action.p}`);
+                    gameState.turn++;
+                    return;
+                }
+                gameState.party.delete(action.p);
+                gameState.boxed.add(action.p);
+                if (action.p > 0) {
+                    gameState.wild[action.p - 1].status = 'boxed';
+                }
+            }
+            gameState.turn++;
+        }
+
+        function nextTurn() {
+            if (currentTurn < currentOutput.length) {
+                applyAction(currentOutput[currentTurn]);
+                currentTurn++;
+                updateControls();
+                render();
+            }
+        }
+
+        function prevTurn() {
+            if (currentTurn > 0) {
+                seekTo(currentTurn - 1);
+            }
+        }
+
+        function togglePlay() {
+            isPlaying = !isPlaying;
+            document.getElementById('playBtn').innerHTML = isPlaying ? '&#9632; 停止' : '&#9654; 再生';
+
+            if (isPlaying) {
+                const speed = parseInt(document.getElementById('speedSelect').value);
+                playInterval = setInterval(() => {
+                    if (currentTurn < currentOutput.length) {
+                        nextTurn();
+                    } else {
+                        togglePlay();
+                    }
+                }, speed);
+            } else {
+                clearInterval(playInterval);
+            }
+        }
+
+        function render() {
+            if (!gameState) return;
+
+            // Update info panel
+            document.getElementById('currentTurn').textContent = currentTurn;
+            document.getElementById('totalExp').textContent = gameState.totalExp.toLocaleString();
+            document.getElementById('faintedCount').textContent =
+                gameState.wild.filter(w => w.status === 'fainted').length;
+            document.getElementById('partySize').textContent = `${gameState.party.size} / 6`;
+
+            // Render party
+            renderParty();
+
+            // Render wild pokemon
+            renderWild();
+
+            // Render action log
+            renderLog();
+        }
+
+        function renderParty() {
+            const container = document.getElementById('partyList');
+            container.innerHTML = '';
+
+            const sortedParty = Array.from(gameState.party).sort((a, b) => a - b);
+
+            for (const id of sortedParty) {
+                const div = document.createElement('div');
+                div.className = `party-pokemon ${id === 0 ? 'initial' : 'caught'}`;
+
+                const moves = gameState.partyMoves[id];
+                let movesHtml = '';
+                if (moves) {
+                    movesHtml = moves.map((m, idx) => `
+                        <div class="move-row">
+                            <span class="move-name">技${idx + 1} (${m.damage} ダメージ)</span>
+                            <span class="move-uses ${m.uses === 0 ? 'depleted' : ''}">${m.uses}/${m.maxUses}</span>
+                        </div>
+                    `).join('');
+                }
+
+                div.innerHTML = `
+                    <div class="pokemon-header">
+                        <span class="pokemon-id">${id === 0 ? '最初のポケモン' : `ポケモン #${id}`}</span>
+                    </div>
+                    ${movesHtml}
+                `;
+                container.appendChild(div);
+            }
+        }
+
+        function renderWild() {
+            const container = document.getElementById('wildGrid');
+            container.innerHTML = '';
+
+            if (gameState.invalid && currentTurn >= gameState.invalidTurn) {
+                return;
+            }
+
+            for (const wild of gameState.wild) {
+                const div = document.createElement('div');
+                const isCatchable = wild.status === 'alive' && wild.hp <= wild.catchThreshold && wild.hp > 0;
+
+                let statusClass = wild.status;
+                if (isCatchable) statusClass = 'catchable';
+
+                div.className = `wild-pokemon ${statusClass}`;
+                div.title = `C: ${wild.catchThreshold} (捕まえられる体力の上限)\nV: ${wild.exp} (経験値)`;
+
+                const MAX_HP_REFERENCE = 1000;
+                const barWidthPercent = (wild.maxHp / MAX_HP_REFERENCE) * 100;
+                const hpPercent = Math.max(0, (wild.hp / wild.maxHp) * 100);
+                const catchPercent = (wild.catchThreshold / wild.maxHp) * 100;
+                const currentHp = Math.max(0, wild.hp);
+                const isBelowCatch = currentHp <= wild.catchThreshold;
+
+                const markerColor = isBelowCatch ? 'marker-green' : 'marker-red';
+
+                div.innerHTML = `
+                    <span class="wild-id">${wild.id}</span>
+                    <div class="hp-bar-wrapper">
+                        <div class="hp-bar-container" style="width: ${barWidthPercent}%">
+                            <div class="hp-bar-catchable" style="width: ${catchPercent}%"></div>
+                            <div class="hp-bar ${isBelowCatch ? 'below-catch' : 'above-catch'}" style="width: ${hpPercent}%"></div>
+                            <div class="hp-bar-catch-marker ${markerColor}" style="left: ${catchPercent}%"></div>
+                        </div>
+                        <span class="hp-text">${currentHp}/${wild.maxHp}</span>
+                    </div>
+                `;
+                container.appendChild(div);
+            }
+        }
+
+        function renderLog() {
+            const container = document.getElementById('logContent');
+            container.innerHTML = '';
+
+            if (gameState.invalid && currentTurn >= gameState.invalidTurn) {
+                const text = `ターン ${gameState.invalidTurn}: 不正な状態になりました。${gameState.invalidMessage}`;
+                container.innerHTML = `<div class="log-entry invalid">${text}</div>`;
+                return;
+            }
+            
+            if (currentTurn > 0) {
+                const i = currentTurn - 1;
+                const action = currentOutput[i];
+                let text = '';
+                let className = '';
+
+                if (action.type === 'attack') {
+                    const target = gameState.wild[action.t - 1];
+                    const move = gameState.partyMoves[action.p]?.[action.m - 1];
+                    text = `ターン ${i + 1}: ポケモン ${action.p} が #${action.t} に技${action.m}で攻撃 (${move?.damage || '?'} ダメージ)`;
+                    className = 'attack';
+                } else if (action.type === 'catch') {
+                    text = `ターン ${i + 1}: ポケモン #${action.t} を捕まえた`;
+                    className = 'catch';
+                } else if (action.type === 'box') {
+                    text = `ターン ${i + 1}: ポケモン ${action.p} をボックスに預けた`;
+                    className = 'box';
+                }
+
+                container.innerHTML = `<div class="log-entry ${className}">${text}</div>`;
+            }
+        }
+    </script>
+</body>
+</html>

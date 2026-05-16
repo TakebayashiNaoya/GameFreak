@@ -1,0 +1,113 @@
+#include iostream
+#include vector
+#include algorithm
+using namespace std;
+
+int main() {
+    int N; cin  N;
+    vectorint H(N+1), C(N+1), V(N+1);
+    vectorvectorint A(N+1, vectorint(2));
+    vectorvectorint B(N+1, vectorint(2));
+    for(int i=1; i=N; i++) {
+        cin  H[i]  C[i]  V[i]  A[i][0]  B[i][0]  A[i][1]  B[i][1];
+    }
+
+     はじめから手持ちにいるポケモンの情報
+    cin  A[0][0]  B[0][0]  A[0][1]  B[0][1];
+
+     手持ちのポケモンであるかどうかを管理
+    vectorbool in_hand(N+1, false);
+    in_hand[0] = true;
+
+     ボックスに預けたかどうかを管理
+    vectorbool in_box(N+1, false);
+
+    while (true) {
+         与えられるダメージの総和
+        int total_damage = 0;
+        for(int i=0; i=N; i++) {
+            if (in_hand[i]) {
+                total_damage += A[i][0]  B[i][0] + A[i][1]  B[i][1];
+            }
+        }
+
+        if (count(in_hand.begin(), in_hand.end(), true)  6) {
+             手持ちが 6 匹未満ならば捕まえる
+             捕まえられる かつ 体力が最も小さいポケモンを探す
+            int best_idx = -1;
+            int min_hp = 1e9;
+            for(int i=1; i=N; i++) {
+                if (in_hand[i]  in_box[i]) continue;
+                if (0  H[i] && H[i]  min_hp && H[i] - total_damage = C[i]) {
+                    min_hp = H[i];
+                    best_idx = i;
+                }
+            }
+            if (best_idx  0) {
+                break;
+            }
+
+             技を出す
+            for(int i=0; i=N; i++) {
+                if (!in_hand[i]) continue;
+                while (H[best_idx]  C[best_idx]) {
+                    if (B[i][0] == 0 && B[i][1] == 0) {
+                        break;
+                    }
+                    int move_idx = B[i][0]  0  0  1;
+                    H[best_idx] -= A[i][move_idx];
+                    B[i][move_idx]--;
+                    cout  1     i     best_idx     move_idx + 1  endl;
+                }
+            }
+
+             捕まえる
+            if (0  H[best_idx] && H[best_idx] = C[best_idx]) {
+                in_hand[best_idx] = true;
+                cout  2     best_idx  endl;
+            }
+        } else {
+             手持ちが 6 匹ならば、野生のポケモンをひんし状態にする
+             ひんし状態にできる かつ 体力が最も小さいポケモンを探す
+            int best_idx = -1;
+            int min_hp = 1e9;
+            for(int i=1; i=N; i++) {
+                if (in_hand[i]  in_box[i]) continue;
+                if (H[i] = 0  H[i] - total_damage  0) continue;
+                if (H[i]  min_hp) {
+                    min_hp = H[i];
+                    best_idx = i;
+                }
+            }
+
+            if (best_idx  0) {
+                break;
+            }
+
+             技を出す
+            for(int i=0; i=N; i++) {
+                if (!in_hand[i]) continue;
+                while (H[best_idx]  0) {
+                    if (B[i][0] == 0 && B[i][1] == 0) {
+                        break;
+                    }
+                    int move_idx = B[i][0]  0  0  1;
+                    H[best_idx] -= A[i][move_idx];
+                    B[i][move_idx]--;
+                    cout  1     i     best_idx     move_idx + 1  endl;
+                }
+            }
+        }
+
+         出せる技がない手持ちのポケモンをボックスに預ける
+        for(int i=0; i=N; i++) {
+            if (!in_hand[i]) continue;
+            if (B[i][0] == 0 && B[i][1] == 0) {
+                in_hand[i] = false;
+                in_box[i] = true;
+                cout  3     i  endl;
+            }
+        }
+    }
+    return 0;
+}
