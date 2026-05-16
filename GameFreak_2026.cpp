@@ -43,6 +43,7 @@ struct StaticPokemonData
 	int catchCost = 0;				// 捕まえるのに必要なダメージ（maxHp - captureHp）
 	float catchEfficiency = 0.0f;	// 捕まえる効率（totalDamage / catchCost）
 	float defeatEfficiency = 0.0f;	// 倒す効率（exp / maxHp）
+	float score = 0.0f;				// ソート用スコア（defeatEfficiency - catchEfficiency）
 };
 vector<StaticPokemonData> g_baseData;
 
@@ -95,6 +96,9 @@ void InitializePrecalc(StaticPokemonData& p)
 	else {
 		p.defeatEfficiency = 0.0f;
 	}
+
+	// ソート用スコア（大きいほど「倒す優先」、小さいほど「捕まえる優先」）
+	p.score = p.defeatEfficiency - p.catchEfficiency;
 }
 
 /**
@@ -284,6 +288,62 @@ int SelectBestFaintTarget(
 }
 
 
+/**
+ * @brief 境界線kを決定する関数
+ * @details
+ *	ソート済みリストで先頭～k番目を「倒す対象」、k+1番目～末尾を「捕まえる対象」とする。
+ *	必要ダメージ = 倒す対象のH合計 + 捕まえる対象の(H - C)合計
+ *	与えられるダメージ = 初期ポケモンの技合計 + 捕まえる対象の技合計
+ *	k = N-1（全員倒す）から始めて、条件を満たさなければkを減らす（捕まえる対象を増やす）。
+ *	「与えられるダメージ >= 必要ダメージ」を満たす最大のk（倒す対象が最多）を返す。
+ * @param sortedRank スコア降順にソートされたポケモンインデックス列
+ * @return 境界線k（sortedRank上のインデックス。k番目まで倒す、k+1番目以降捕まえる）
+ */
+int DecideBoundary(const vector<int>& sortedRank)
+{
+	int N = (int)sortedRank.size();
+
+	// 最初の手持ちの技の合計ダメージ
+	int initialDamage = g_baseData[0].totalDamage;
+
+	// 倒す対象のH合計と、捕まえる対象の(H - C)合計を初期化
+	int defeatRequired = 0;
+	// k = N-1（全員倒す）の状態で初期化
+	for (int i = 0; i < N; i++) {
+		defeatRequired += g_baseData[sortedRank[i]].maxHp;
+	}
+
+	// 捕まえる対象の(H - C)合計を初期化
+	int catchRequired = 0;
+	// 捕まえる対象の技の合計ダメージを初期化
+	int catchDamage = 0;
+
+	// k = N-1 から k = -1 に向かって探索
+	// 条件を満たす最初のk（倒す対象が最多）を返す
+	for (int k = N - 1; k >= -1; k--)
+	{
+		// 与えられるダメージ
+		int givenDamage = initialDamage + catchDamage;
+		// 必要ダメージ
+		int neededDamage = defeatRequired + catchRequired;
+
+		// 与えられるダメージが必要ダメージを上回るなら、kを返す
+		if (givenDamage >= neededDamage) {
+			return k;
+		}
+
+		// kを一つ減らす（k番目を捕まえる対象に移す）
+		if (k >= 0)
+		{
+			int id = sortedRank[k];
+			defeatRequired -= g_baseData[id].maxHp;
+			catchRequired += g_baseData[id].maxHp - g_baseData[id].captureHp;
+			catchDamage += g_baseData[id].totalDamage;
+		}
+	}
+}
+
+
 /******************************************************/
 
 
@@ -331,6 +391,21 @@ int main()
 		StaticPokemonData& p0 = g_baseData[0];
 		cin >> p0.movePower[0] >> p0.maxMoveCount[0] >> p0.movePower[1] >> p0.maxMoveCount[1];
 		InitializePrecalc(p0);
+
+		// スコア（defeatEfficiency - catchEfficiency）の降順でソートしたインデックス列を作成
+		// 先頭が「倒す優先」、末尾が「捕まえる優先」
+		vector<int> sortedRank;
+		for (int i = 1; i <= N; i++) {
+			sortedRank.push_back(i);
+		}
+		sort(sortedRank.begin(), sortedRank.end(), [](int a, int b) {
+			return g_baseData[a].score > g_baseData[b].score;
+			});
+
+		// 境界線kを決定する
+		// sortedRank[0]～sortedRank[k]：倒す対象
+		// sortedRank[k+1]～sortedRank[N-1]：捕まえる対象（技を補充するために順次捕まえる）
+		int boundary = DecideBoundary(sortedRank);
 
 
 		/////////////////////////////
