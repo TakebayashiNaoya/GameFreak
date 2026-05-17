@@ -4,6 +4,7 @@
 #include <vector>
 #include <algorithm>
 #include <cstdint>
+#include <cstring>
 using namespace std;
 
 #include <fstream>
@@ -48,10 +49,11 @@ vector<StaticPokemonData> g_baseData;
  */
 enum class Location : uint8_t
 {
-	WILD = 0,	// 野生
-	HAND,		// 手持ち
-	BOX,		// ボックス
-	FAINTED		// ひんし
+	WILD = 0,		// 野生
+	HAND,			// 手持ち
+	BOX,			// ボックス
+	FAINTED,		// ひんし
+	STOCKED			// C以下に削られ捕獲待ちの野生
 };
 
 /**
@@ -131,11 +133,20 @@ pair<int, int> SelectBestAttackMove(
 	return { bestAttacker, bestMove };
 }
 
+// 到達可能なHPを管理する固定サイズbool配列
+// 対象ポケモンのcurrentHp（最大1000）を起点に減算方向でDPする
+// vector<bool>の動的確保を避けることで毎ターンの処理を高速化する
+static const int MAX_HP = 1000;
+static bool g_reachable[MAX_HP + 1];
+static bool g_prev[MAX_HP + 1];
+
 /**
  * @brief 手持ちの技の組み合わせで対象をCまで削り切れるか判定する関数
  * @details
- *	各技を任意の回数・順序で使った場合に、HPが1以上captureHp以下に収まる状態に
- *	到達できるかをDPで判定する。
+ *	currentHp を起点に、各技を 0〜残り回数 の範囲で使った場合に
+ *	到達可能なHPの集合をDPで管理する。
+ *	固定サイズの配列を使いまわすことで動的メモリ確保コストをなくす。
+ *	捕獲可能範囲 [1, captureHp] に到達できれば true を返す。
  * @return 削り切れる場合true、不可能な場合false
  */
 bool CanReduceToCaptureRange(
@@ -149,48 +160,37 @@ bool CanReduceToCaptureRange(
 	// すでにC以下なら削る必要なし
 	if (currentHp >= 1 && currentHp <= captureHp) return true;
 
-	// 手持ちの技リストを収集（威力と残り回数）
-	vector<pair<int, int>> moves; // {威力, 残り回数}
+	// currentHp を起点に減算方向でDP
+	fill(g_reachable, g_reachable + currentHp + 1, false);
+	g_reachable[currentHp] = true;
+
 	for (int h : handIds) {
 		for (int m = 0; m < 2; ++m) {
-			if (pokemons[h].remainingMoveCount[m] > 0) {
-				moves.push_back({ g_baseData[h].movePower[m], pokemons[h].remainingMoveCount[m] });
-			}
-		}
-	}
+			int power = g_baseData[h].movePower[m];
+			int count = pokemons[h].remainingMoveCount[m];
+			if (count == 0) continue;
 
-	// DPで到達可能なHP集合を管理
-	// 技を1種類ずつ処理し、各技をk回(0<=k<=残り回数)使う場合を考慮
-	vector<bool> reachable(currentHp + 1, false);
-	reachable[currentHp] = true;
-
-	for (auto& [power, count] : moves)
-	{
-		// この技をk回使う場合を追加（後ろから処理して重複使用を防ぐ）
-		// k=1からcountまで順に適用
-		for (int k = 0; k < count; ++k)
-		{
-			// 現在到達可能なHPからpowerを引いた値を追加
-			vector<bool> next = reachable;
-			for (int hp = 1; hp <= currentHp; ++hp)
+			// この技をk回(1〜count)使う場合をDPに追加
+			// コピーを使って連鎖加算を防ぐ
+			for (int k = 0; k < count; ++k)
 			{
-				if (!reachable[hp]) continue;
-				int newHp = hp - power;
-				if (newHp >= 1 && newHp <= currentHp)
-					next[newHp] = true;
+				memcpy(g_prev, g_reachable, (currentHp + 1) * sizeof(bool));
+				for (int hp = power + 1; hp <= currentHp; ++hp)
+				{
+					if (g_prev[hp])
+						g_reachable[hp - power] = true;
+				}
 			}
-			reachable = next;
 		}
 	}
 
 	// captureHp以下かつ1以上のHPに到達可能か確認
 	for (int hp = 1; hp <= captureHp; ++hp)
 	{
-		if (reachable[hp]) return true;
+		if (g_reachable[hp]) return true;
 	}
 	return false;
 }
-
 
 /**
  * @brief 手持ちポケモン全員の技から、捕まえるために最善の技を選ぶ関数
@@ -207,10 +207,12 @@ pair<int, int> SelectBestCatchMove(
 	int currentHp = pokemons[targetId].currentHp;
 	int captureHp = g_baseData[targetId].captureHp;
 
-	// 優先1：1発で captureHp 以下に収める技（hpAfter が captureHp に最も近い）
+	// 優先1：1発で captureHp 以下に収める技（hpAfter が captureHp に最も近いもの）
 	int best1Attacker = -1, best1Move = -1, best1HpAfter = -1;
 
 	// 優先2：captureHp より大きいまま残す技（最大ダメージ）
+	// CanReduceToCaptureRange で削り切れることは呼び出し元で確認済みのため、
+	// ここでは再チェックを行わず最大ダメージの技を選ぶ
 	int best2Attacker = -1, best2Move = -1, best2Damage = -1;
 
 	for (int handId : handIds) {
@@ -260,6 +262,58 @@ bool HasAnyMove(
 	return false;
 }
 
+/**
+ * @brief 事前計算で倒す候補と捕まえる候補を決定する関数
+ * @details
+ *	sortedRankの前からk匹を「倒す」、残りを「捕まえる」と仮定し、
+ *	使える合計ダメージ ≥ 倒すコスト + 捕まえるコスト を満たす最大のkを探す。
+ *	使える合計ダメージ = 初期手持ちの合計ダメージ + 捕まえるポケモンの合計ダメージ
+ * @param sortedRank  スコア降順のインデックス列
+ * @param defeatCount 決定した「倒す」匹数（出力）
+ */
+void DecideStrategy(
+	const vector<int>& sortedRank,
+	int& defeatCount)
+{
+	int N = (int)sortedRank.size();
+
+	// 初期手持ちの合計ダメージ
+	int initialDamage = g_baseData[0].totalDamage;
+
+	// 累積和を事前計算
+	vector<int> defeatCostPrefix(N + 1, 0);	// 前からk匹倒すコストの累積和
+	vector<int> catchCostSuffix(N + 1, 0);	// 後ろからN-k匹捕まえるコストの累積和
+	vector<int> catchBonusSuffix(N + 1, 0);	// 後ろからN-k匹捕まえるボーナスの累積和
+
+	for (int i = 0; i < N; ++i) {
+		int id = sortedRank[i];
+		defeatCostPrefix[i + 1] = defeatCostPrefix[i] + g_baseData[id].maxHp;
+	}
+	for (int i = N - 1; i >= 0; --i) {
+		int id = sortedRank[i];
+		catchCostSuffix[i] = catchCostSuffix[i + 1] + (g_baseData[id].maxHp - g_baseData[id].captureHp);
+		catchBonusSuffix[i] = catchBonusSuffix[i + 1] + g_baseData[id].totalDamage;
+	}
+
+	// k=0からNまで順に条件を確認し、満たす最大のkを探す
+	defeatCount = 0;
+	for (int k = 0; k <= N; ++k)
+	{
+		int availableDamage = initialDamage + catchBonusSuffix[k];
+		int requiredDamage = defeatCostPrefix[k] + catchCostSuffix[k];
+
+		if (availableDamage >= requiredDamage)
+		{
+			defeatCount = k;
+		}
+		else
+		{
+			// 条件を満たさなくなった時点で終了
+			break;
+		}
+	}
+}
+
 
 /******************************************************/
 
@@ -268,17 +322,17 @@ int main()
 {
 	// 提出時、以下はコメントアウト
 	/** ここから */
-	// for (int fileIdx = 0; fileIdx <= 4; fileIdx++)
-	// {
-	// 	char inputPath[64];
-	// 	char outputPath[64];
-	// 	sprintf(inputPath, "入力ファイル/%04d.txt", fileIdx);
-	// 	sprintf(outputPath, "出力ファイル/%04d.out", fileIdx);
-	// 	ifstream is(inputPath);
-	// 	ofstream os(outputPath);
-	// 	// cin/cout のバッファを差し替える
-	// 	streambuf* oldIn = cin.rdbuf(is.rdbuf());
-	// 	streambuf* oldOut = cout.rdbuf(os.rdbuf());
+	for (int fileIdx = 0; fileIdx <= 4; fileIdx++)
+	{
+		char inputPath[64];
+		char outputPath[64];
+		sprintf(inputPath, "入力ファイル/%04d.txt", fileIdx);
+		sprintf(outputPath, "出力ファイル/%04d.out", fileIdx);
+		ifstream is(inputPath);
+		ofstream os(outputPath);
+		// cin/cout のバッファを差し替える
+		streambuf* oldIn = cin.rdbuf(is.rdbuf());
+		streambuf* oldOut = cout.rdbuf(os.rdbuf());
 		/** ここまで */
 
 		////////////////////////////////////////////////////
@@ -286,175 +340,253 @@ int main()
 		////////////////////////////////////////////////////
 
 		// 野生のポケモンの数を読み込み
-	int N;
-	cin >> N;
+		int N;
+		cin >> N;
 
-	// 静的データ（g_baseData）のメモリ確保
-	// 0番：最初の手持ち、1～N番：野生のポケモン
-	g_baseData.assign(N + 1, StaticPokemonData());
+		// 静的データ（g_baseData）のメモリ確保
+		// 0番：最初の手持ち、1～N番：野生のポケモン
+		g_baseData.assign(N + 1, StaticPokemonData());
 
-	// 野生のポケモンの情報を読み込み
-	for (int i = 1; i <= N; i++)
-	{
-		StaticPokemonData& p = g_baseData[i];
-		cin >> p.maxHp >> p.captureHp >> p.exp
-			>> p.movePower[0] >> p.maxMoveCount[0] >> p.movePower[1] >> p.maxMoveCount[1];
-
-		// スコア計算用の事前処理
-		InitializePrecalc(p);
-	}
-
-	// 最初の手持ちポケモンの情報を読み込み
-	StaticPokemonData& p0 = g_baseData[0];
-	cin >> p0.movePower[0] >> p0.maxMoveCount[0] >> p0.movePower[1] >> p0.maxMoveCount[1];
-	InitializePrecalc(p0);
-
-	// スコアの降順でソートしたインデックス列を作成
-	// 先頭が「倒す優先」、末尾が「捕まえる優先」
-	vector<int> sortedRank;
-	for (int i = 1; i <= N; i++) {
-		sortedRank.push_back(i);
-	}
-	sort(sortedRank.begin(), sortedRank.end(), [](int a, int b) {
-		return g_baseData[a].score > g_baseData[b].score;
-		});
-
-
-	/////////////////////////////
-	// 初期状態の構築           //
-	/////////////////////////////
-
-	vector<DynamicPokemonData> pokemons(N + 1);
-	for (int i = 0; i <= N; i++)
-	{
-		pokemons[i].currentHp = g_baseData[i].maxHp;
-		pokemons[i].remainingMoveCount[0] = g_baseData[i].maxMoveCount[0];
-		pokemons[i].remainingMoveCount[1] = g_baseData[i].maxMoveCount[1];
-		pokemons[i].location = (i == 0) ? Location::HAND : Location::WILD;
-	}
-
-	// 手持ちリスト（インデックスのみ）
-	vector<int> handIds = { 0 };
-
-
-	////////////////////
-	// メインループ   //
-	////////////////////
-
-	while (true)
-	{
-		//=============================================================================
-		// ステップ1：捕まえられるポケモンを末尾から探して即捕獲（ボックス送り前に優先）
-		//=============================================================================
-		// 前のターンで削ったポケモンが捕まえられる状態になっている場合、
-		// ボックス送りより先に捕獲することで技切れによる手持ち消失を防ぐ
-		if ((int)handIds.size() < 6)
+		// 野生のポケモンの情報を読み込み
+		for (int i = 1; i <= N; i++)
 		{
-			// 捕まえたかどうかのフラグ
-			bool caught = false;
+			StaticPokemonData& p = g_baseData[i];
+			cin >> p.maxHp >> p.captureHp >> p.exp
+				>> p.movePower[0] >> p.maxMoveCount[0] >> p.movePower[1] >> p.maxMoveCount[1];
 
-			// 末尾から捕まえられるポケモンを探す
-			for (int ri = (int)sortedRank.size() - 1; ri >= 0; --ri)
-			{
-				int targetId = sortedRank[ri];
-
-				// 野生のポケモン以外はスキップ
-				if (pokemons[targetId].location != Location::WILD) continue;
-
-				// 捕まえられるかどうかを確認
-				int currentHp = pokemons[targetId].currentHp;
-				int captureHp = g_baseData[targetId].captureHp;
-				if (currentHp >= 1 && currentHp <= captureHp)
-				{
-					// 捕まえられるので、手持ちに加える
-					pokemons[targetId].location = Location::HAND;
-					handIds.push_back(targetId);
-					// 捕まえたポケモンの技の残り回数は最大に回復する
-					pokemons[targetId].remainingMoveCount[0] = g_baseData[targetId].maxMoveCount[0];
-					pokemons[targetId].remainingMoveCount[1] = g_baseData[targetId].maxMoveCount[1];
-					// 捕まえる行動の出力
-					cout << 2 << " " << targetId << "\n";
-					caught = true;
-					break;
-				}
-			}
-			// 捕まえたポケモンがいれば、ボックス送りのステップはスキップして次のターンへ
-			if (caught) continue;
+			// スコア計算用の事前処理
+			InitializePrecalc(p);
 		}
 
-		//=============================================================================
-		// ステップ2：技が尽きた手持ちをボックスへ送る
-		//=============================================================================
-		{
-			vector<int> newHandIds;
-			for (int h : handIds)
-			{
-				if (pokemons[h].remainingMoveCount[0] == 0 &&
-					pokemons[h].remainingMoveCount[1] == 0)
-				{
-					pokemons[h].location = Location::BOX;
-					cout << 3 << " " << h << "\n";
-				}
-				else
-				{
-					newHandIds.push_back(h);
-				}
-			}
-			handIds = newHandIds;
+		// 最初の手持ちポケモンの情報を読み込み
+		StaticPokemonData& p0 = g_baseData[0];
+		cin >> p0.movePower[0] >> p0.maxMoveCount[0] >> p0.movePower[1] >> p0.maxMoveCount[1];
+		InitializePrecalc(p0);
+
+		// スコアの降順でソートしたインデックス列を作成
+		// 先頭が「倒す優先」、末尾が「捕まえる優先」
+		vector<int> sortedRank;
+		for (int i = 1; i <= N; i++) {
+			sortedRank.push_back(i);
 		}
-		// 手持ちが空になったらゲームオーバーなのでループを抜ける
-		if (!HasAnyMove(handIds, pokemons)) break;
+		sort(sortedRank.begin(), sortedRank.end(), [](int a, int b) {
+			return g_baseData[a].score > g_baseData[b].score;
+			});
+
+		// 事前計算：倒す匹数を決定
+		int defeatCount = 0;
+		DecideStrategy(sortedRank, defeatCount);
+
+		// 倒す候補・捕まえる候補のセットを構築
+		// defeatTargets：スコア上位defeatCount匹（倒す）
+		// catchTargets ：残りのN-defeatCount匹（捕まえる）
+		vector<int> defeatTargets(sortedRank.begin(), sortedRank.begin() + defeatCount);
+		vector<int> catchTargets(sortedRank.begin() + defeatCount, sortedRank.end());
 
 
-		//=============================================================================
-		// ステップ3：技を使う行動
-		//=============================================================================
-		// 行動したかどうかのフラグ
-		bool acted = false;
+		/////////////////////////////
+		// 初期状態の構築           //
+		/////////////////////////////
 
-		// 手持ちが 6 匹未満：捕まえることを優先
-		if ((int)handIds.size() < 6)
+		vector<DynamicPokemonData> pokemons(N + 1);
+		for (int i = 0; i <= N; i++)
 		{
-			// 手持ちの合計残りダメージを計算
-			int totalRemDmg = CalcTotalRemainingDamage(handIds, pokemons);
+			pokemons[i].currentHp = g_baseData[i].maxHp;
+			pokemons[i].remainingMoveCount[0] = g_baseData[i].maxMoveCount[0];
+			pokemons[i].remainingMoveCount[1] = g_baseData[i].maxMoveCount[1];
+			pokemons[i].location = (i == 0) ? Location::HAND : Location::WILD;
+		}
 
-			// 末尾から「今の手持ちで捕まえ可能」なポケモンを探す
-			for (int ri = (int)sortedRank.size() - 1; ri >= 0; --ri)
+		// 手持ちリスト（インデックスのみ）
+		vector<int> handIds = { 0 };
+
+		// フェーズ管理
+		// phase1: catchTargetsをC以下に削ってストックする
+		// phase2: ストックを捕まえながらdefeatTargetsを倒す
+		bool phase1Complete = catchTargets.empty();
+
+
+		////////////////////
+		// メインループ   //
+		////////////////////
+
+		while (true)
+		{
+			//=============================================================================
+			// ステップ1：ストック済みポケモンを捕まえる（ボックス送り前に優先）
+			//=============================================================================
+			if ((int)handIds.size() < 6)
 			{
-				int targetId = sortedRank[ri];
-
-				// 野生のポケモン以外はスキップ
-				if (pokemons[targetId].location != Location::WILD) continue;
-
-				// 手持ちの技の組み合わせで実際にCまで削り切れるか確認
-				// 合計ダメージが足りていても技の刻み方でCを飛び越える場合があるため
-				if (!CanReduceToCaptureRange(handIds, pokemons, targetId)) continue;
-
-				// 削れる技を選ぶ
-				auto [attackerId, moveIndex] = SelectBestCatchMove(handIds, pokemons, targetId);
-				if (attackerId != -1)
+				// 残っている野生catchTargetのhpとcaptureHpを収集
+				// （有効な技を持つSTOCKEDを優先するための情報）
+				vector<pair<int, int>> wildRemaining; // {currentHp, captureHp}
+				for (int targetId : catchTargets)
 				{
-					// 技を撃ってダメージを与える
-					int damage = g_baseData[attackerId].movePower[moveIndex];
-					pokemons[targetId].currentHp -= damage;
-					// 手持ちの技の残り回数を減らす
-					pokemons[attackerId].remainingMoveCount[moveIndex]--;
-					// ダメージを与えた結果、倒れていればひんしにする
-					if (pokemons[targetId].currentHp <= 0) {
-						pokemons[targetId].location = Location::FAINTED;
+					if (pokemons[targetId].location != Location::WILD) continue;
+					wildRemaining.push_back({
+						pokemons[targetId].currentHp,
+						g_baseData[targetId].captureHp
+						});
+				}
+
+				// 有効な技を持つSTOCKEDを優先、なければ任意のSTOCKEDを捕まえる
+				int catchId = -1;
+				int fallbackId = -1;
+				for (int targetId : catchTargets)
+				{
+					Location loc = pokemons[targetId].location;
+					bool isStock = (loc == Location::STOCKED) ||
+						(loc == Location::WILD &&
+							pokemons[targetId].currentHp >= 1 &&
+							pokemons[targetId].currentHp <= g_baseData[targetId].captureHp);
+					if (!isStock) continue;
+
+					if (fallbackId == -1) fallbackId = targetId;
+
+					// このポケモンの技が残野生catchTargetに対して有効かチェック
+					// 有効 = 1発でC以下に収められる威力を持つ
+					bool useful = wildRemaining.empty();
+					for (auto& [wildHp, wildC] : wildRemaining)
+					{
+						for (int m = 0; m < 2; ++m)
+						{
+							int power = g_baseData[targetId].movePower[m];
+							int hpAfter = wildHp - power;
+							if (hpAfter >= 1 && hpAfter <= wildC)
+							{
+								useful = true;
+								break;
+							}
+						}
+						if (useful) break;
 					}
-					// 行動の出力
-					cout << 1 << " " << attackerId << " " << targetId << " " << (moveIndex + 1) << "\n";
-					// 技を撃ったのでループを抜けて次のターンへ
-					acted = true;
-					break;
+					if (useful)
+					{
+						catchId = targetId;
+						break;
+					}
+				}
+
+				// 有効なSTOCKEDがなければ任意のSTOCKEDを捕まえる
+				if (catchId == -1) catchId = fallbackId;
+
+				if (catchId != -1)
+				{
+					pokemons[catchId].location = Location::HAND;
+					handIds.push_back(catchId);
+					pokemons[catchId].remainingMoveCount[0] = g_baseData[catchId].maxMoveCount[0];
+					pokemons[catchId].remainingMoveCount[1] = g_baseData[catchId].maxMoveCount[1];
+					cout << 2 << " " << catchId << "\n";
+					continue;
 				}
 			}
 
-			// 捕まえる対象がなければ倒す対象（先頭）を攻撃
-			if (!acted)
+			//=============================================================================
+			// ステップ2：技が尽きた手持ちをボックスへ送る
+			//=============================================================================
 			{
-				for (int targetId : sortedRank)
+				vector<int> newHandIds;
+				for (int h : handIds)
+				{
+					if (pokemons[h].remainingMoveCount[0] == 0 &&
+						pokemons[h].remainingMoveCount[1] == 0)
+					{
+						pokemons[h].location = Location::BOX;
+						cout << 3 << " " << h << "\n";
+					}
+					else
+					{
+						newHandIds.push_back(h);
+					}
+				}
+				handIds = newHandIds;
+			}
+			if (!HasAnyMove(handIds, pokemons)) break;
+
+
+			//=============================================================================
+			// ステップ3：技を使う行動
+			//=============================================================================
+			bool acted = false;
+
+			// フェーズ1完了チェック：全catchTargetsがWILD以外になれば完了
+			if (!phase1Complete)
+			{
+				phase1Complete = true;
+				for (int targetId : catchTargets) {
+					if (pokemons[targetId].location == Location::WILD) {
+						phase1Complete = false;
+						break;
+					}
+				}
+			}
+
+			if (!phase1Complete)
+			{
+				//-------------------------------------------------------------------------
+				// フェーズ1：catchTargetsをC以下に削ってストックする
+				// CanReduceToCaptureRangeで削り切れる対象が見つかった時点で攻撃・break
+				//-------------------------------------------------------------------------
+				for (int targetId : catchTargets)
+				{
+					if (pokemons[targetId].location != Location::WILD) continue;
+
+					// DPで実際にCまで削り切れるか確認
+					if (!CanReduceToCaptureRange(handIds, pokemons, targetId)) continue;
+
+					// 削れる技を選ぶ
+					auto [attackerId, moveIndex] = SelectBestCatchMove(handIds, pokemons, targetId);
+					if (attackerId != -1)
+					{
+						int damage = g_baseData[attackerId].movePower[moveIndex];
+						pokemons[targetId].currentHp -= damage;
+						pokemons[attackerId].remainingMoveCount[moveIndex]--;
+
+						if (pokemons[targetId].currentHp <= 0)
+						{
+							// 誤って倒してしまった場合はひんしに
+							pokemons[targetId].location = Location::FAINTED;
+						}
+						else if (pokemons[targetId].currentHp <= g_baseData[targetId].captureHp)
+						{
+							// C以下になったのでストック
+							pokemons[targetId].location = Location::STOCKED;
+						}
+
+						cout << 1 << " " << attackerId << " " << targetId << " " << (moveIndex + 1) << "\n";
+						acted = true;
+						break;
+					}
+				}
+
+				// フェーズ1で詰まった場合はdefeatTargetsを攻撃して手持ちを入れ替える
+				if (!acted)
+				{
+					for (int targetId : defeatTargets)
+					{
+						if (pokemons[targetId].location != Location::WILD) continue;
+						auto [attackerId, moveIndex] = SelectBestAttackMove(handIds, pokemons);
+						if (attackerId != -1)
+						{
+							int damage = g_baseData[attackerId].movePower[moveIndex];
+							pokemons[targetId].currentHp -= damage;
+							pokemons[attackerId].remainingMoveCount[moveIndex]--;
+							if (pokemons[targetId].currentHp <= 0)
+								pokemons[targetId].location = Location::FAINTED;
+							cout << 1 << " " << attackerId << " " << targetId << " " << (moveIndex + 1) << "\n";
+							acted = true;
+						}
+						break;
+					}
+				}
+			}
+
+			if (!acted && phase1Complete)
+			{
+				//-------------------------------------------------------------------------
+				// フェーズ2：ストックを捕まえながらdefeatTargetsを倒す
+				//-------------------------------------------------------------------------
+				for (int targetId : defeatTargets)
 				{
 					if (pokemons[targetId].location != Location::WILD) continue;
 					auto [attackerId, moveIndex] = SelectBestAttackMove(handIds, pokemons);
@@ -471,37 +603,16 @@ int main()
 					break;
 				}
 			}
-		}
-		// 手持ちが 6 匹：倒すことに専念
-		else
-		{
-			for (int targetId : sortedRank)
-			{
-				if (pokemons[targetId].location != Location::WILD) continue;
-				auto [attackerId, moveIndex] = SelectBestAttackMove(handIds, pokemons);
-				if (attackerId != -1)
-				{
-					int damage = g_baseData[attackerId].movePower[moveIndex];
-					pokemons[targetId].currentHp -= damage;
-					pokemons[attackerId].remainingMoveCount[moveIndex]--;
-					if (pokemons[targetId].currentHp <= 0)
-						pokemons[targetId].location = Location::FAINTED;
-					cout << 1 << " " << attackerId << " " << targetId << " " << (moveIndex + 1) << "\n";
-					acted = true;
-				}
-				break;
-			}
+
+			if (!acted) break;
 		}
 
-		if (!acted) break;
+		// 提出時、以下はコメントアウト
+		/** ここから */
+		cin.rdbuf(oldIn);
+		cout.rdbuf(oldOut);
 	}
-
-	// 提出時、以下はコメントアウト
-	/** ここから */
-// 	cin.rdbuf(oldIn);
-// 	cout.rdbuf(oldOut);
-// }
-/** ここまで */
+	/** ここまで */
 
 	return 0;
 }
