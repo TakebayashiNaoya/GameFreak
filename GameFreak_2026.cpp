@@ -196,7 +196,7 @@ bool CanReduceToCaptureRange(
  * @brief 手持ちポケモン全員の技から、捕まえるために最善の技を選ぶ関数
  * @details
  * 優先1：撃った後のHPが 1 以上 captureHp 以下に収まる技（captureHpに最も近いもの）
- * 優先2：優先1がなければ、captureHp より大きく残す技（最大ダメージ）
+ * 優先2：優先1がなければ、captureHp より大きく残す技（最大ダメージ、ただし倒さない）
  * @return { attackerId, moveIndex }　使える技がなければ { -1, -1 }
  */
 pair<int, int> SelectBestCatchMove(
@@ -210,7 +210,7 @@ pair<int, int> SelectBestCatchMove(
 	// 優先1：1発で captureHp 以下に収める技（hpAfter が captureHp に最も近いもの）
 	int best1Attacker = -1, best1Move = -1, best1HpAfter = -1;
 
-	// 優先2：captureHp より大きいまま残す技（最大ダメージ）
+	// 優先2：captureHp より大きいまま残す技（最大ダメージ、ただし hpAfter >= 1 で倒さない）
 	// CanReduceToCaptureRange で削り切れることは呼び出し元で確認済みのため、
 	// ここでは再チェックを行わず最大ダメージの技を選ぶ
 	int best2Attacker = -1, best2Move = -1, best2Damage = -1;
@@ -230,7 +230,8 @@ pair<int, int> SelectBestCatchMove(
 					best1Move = m;
 				}
 				// 優先2：まだ captureHp より大きいが、できるだけ削る
-				else if (hpAfter > captureHp && damage > best2Damage)
+				// hpAfter >= 1 を確認して倒してしまう技は除外する
+				else if (hpAfter > captureHp && hpAfter >= 1 && damage > best2Damage)
 				{
 					best2Damage = damage;
 					best2Attacker = handId;
@@ -405,6 +406,10 @@ int main()
 		// phase2: ストックを捕まえながらdefeatTargetsを倒す
 		bool phase1Complete = catchTargets.empty();
 
+		// フェーズ1の現在の攻撃対象（固定）
+		// 手持ちが変わっても同じ対象への攻撃を継続することで中途半端な削りを防ぐ
+		int currentCatchTargetId = -1;
+
 
 		////////////////////
 		// メインループ   //
@@ -525,41 +530,70 @@ int main()
 			{
 				//-------------------------------------------------------------------------
 				// フェーズ1：catchTargetsをC以下に削ってストックする
-				// CanReduceToCaptureRangeで削り切れる対象が見つかった時点で攻撃・break
+				// currentCatchTargetIdを固定することで中途半端な削りを防ぐ
 				//-------------------------------------------------------------------------
-				for (int targetId : catchTargets)
+
+				// currentCatchTargetIdの有効性チェック
+				// WILDでない、またはCanReduceToCaptureRangeがfalseになった場合はリセット
+				if (currentCatchTargetId != -1)
 				{
-					if (pokemons[targetId].location != Location::WILD) continue;
-
-					// DPで実際にCまで削り切れるか確認
-					if (!CanReduceToCaptureRange(handIds, pokemons, targetId)) continue;
-
-					// 削れる技を選ぶ
-					auto [attackerId, moveIndex] = SelectBestCatchMove(handIds, pokemons, targetId);
-					if (attackerId != -1)
+					if (pokemons[currentCatchTargetId].location != Location::WILD)
 					{
-						int damage = g_baseData[attackerId].movePower[moveIndex];
-						pokemons[targetId].currentHp -= damage;
-						pokemons[attackerId].remainingMoveCount[moveIndex]--;
+						// STOCKEDまたはFAINTEDになった → リセット
+						currentCatchTargetId = -1;
+					}
+					else if (!CanReduceToCaptureRange(handIds, pokemons, currentCatchTargetId))
+					{
+						// 手持ちが変わって削り切れなくなった → リセット
+						currentCatchTargetId = -1;
+					}
+				}
 
-						if (pokemons[targetId].currentHp <= 0)
-						{
-							// 誤って倒してしまった場合はひんしに
-							pokemons[targetId].location = Location::FAINTED;
-						}
-						else if (pokemons[targetId].currentHp <= g_baseData[targetId].captureHp)
-						{
-							// C以下になったのでストック
-							pokemons[targetId].location = Location::STOCKED;
-						}
-
-						cout << 1 << " " << attackerId << " " << targetId << " " << (moveIndex + 1) << "\n";
-						acted = true;
+				// currentCatchTargetIdが無効なら新しい対象を探す
+				if (currentCatchTargetId == -1)
+				{
+					for (int targetId : catchTargets)
+					{
+						if (pokemons[targetId].location != Location::WILD) continue;
+						if (!CanReduceToCaptureRange(handIds, pokemons, targetId)) continue;
+						currentCatchTargetId = targetId;
 						break;
 					}
 				}
 
-				// フェーズ1で詰まった場合はdefeatTargetsを攻撃して手持ちを入れ替える
+				// 攻撃対象が決まっていれば攻撃
+				if (currentCatchTargetId != -1)
+				{
+					auto [attackerId, moveIndex] = SelectBestCatchMove(handIds, pokemons, currentCatchTargetId);
+					if (attackerId != -1)
+					{
+						int damage = g_baseData[attackerId].movePower[moveIndex];
+						pokemons[currentCatchTargetId].currentHp -= damage;
+						pokemons[attackerId].remainingMoveCount[moveIndex]--;
+
+						int attackedTargetId = currentCatchTargetId;
+						if (pokemons[currentCatchTargetId].currentHp <= 0)
+						{
+							pokemons[currentCatchTargetId].location = Location::FAINTED;
+							currentCatchTargetId = -1;
+						}
+						else if (pokemons[currentCatchTargetId].currentHp <= g_baseData[currentCatchTargetId].captureHp)
+						{
+							pokemons[currentCatchTargetId].location = Location::STOCKED;
+							currentCatchTargetId = -1;
+						}
+
+						cout << 1 << " " << attackerId << " " << attackedTargetId << " " << (moveIndex + 1) << "\n";
+						acted = true;
+					}
+					else
+					{
+						// SelectBestCatchMoveが-1を返した場合はリセットしてdefeatTargets攻撃へ
+						currentCatchTargetId = -1;
+					}
+				}
+
+				// フェーズ1で攻撃対象が見つからない場合はdefeatTargetsを攻撃して手持ちを入れ替える
 				if (!acted)
 				{
 					for (int targetId : defeatTargets)
