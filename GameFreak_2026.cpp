@@ -243,6 +243,103 @@ void DecideStrategy(
 	}
 }
 
+/**
+ * @brief 現在の手持ち全員の残り技の合計ダメージを計算する関数
+ */
+int CalcCurrentHandDamage(
+	const vector<int>& handIds,
+	const vector<DynamicPokemonData>& pokemons)
+{
+	int total = 0;
+	for (int h : handIds)
+	{
+		total += g_baseData[h].movePower[0] * pokemons[h].remainingMoveCount[0];
+		total += g_baseData[h].movePower[1] * pokemons[h].remainingMoveCount[1];
+	}
+	return total;
+}
+
+/**
+ * @brief ストック枯渇時に残りWILDポケモンを対象として戦略を再決定する関数
+ * @details
+ *	まだWILDのポケモンをスコア降順でソートし直し、
+ *	現在の手持ちの残りダメージと currentHp ベースのコストで再計算する。
+ *	結果として defeatTargets / catchTargets を更新し、
+ *	catchPlan もリセットする。
+ */
+void ReDecideStrategy(
+	int N,
+	const vector<DynamicPokemonData>& pokemons,
+	const vector<int>& handIds,
+	vector<int>& defeatTargets,
+	vector<int>& catchTargets,
+	bool& phase1Complete,
+	int& catchPlanTargetId,
+	vector<pair<int, int>>& catchPlan)
+{
+	// まだWILDのポケモンを列挙してスコア降順でソート
+	vector<int> wildRemaining;
+	for (int i = 1; i <= N; i++)
+	{
+		if (pokemons[i].location == Location::WILD)
+			wildRemaining.push_back(i);
+	}
+
+	if (wildRemaining.empty())
+	{
+		defeatTargets.clear();
+		catchTargets.clear();
+		phase1Complete = true;
+		catchPlanTargetId = -1;
+		catchPlan.clear();
+		return;
+	}
+
+	sort(wildRemaining.begin(), wildRemaining.end(), [](int a, int b) {
+		return g_baseData[a].score > g_baseData[b].score;
+		});
+
+	// 現在の手持ちの残りダメージを計算
+	int currentDamage = CalcCurrentHandDamage(handIds, pokemons);
+
+	// currentHpベースでコストを計算して再戦略決定
+	int M = (int)wildRemaining.size();
+	vector<int> defeatCostPrefix(M + 1, 0);
+	vector<int> catchCostSuffix(M + 1, 0);
+	vector<int> catchBonusSuffix(M + 1, 0);
+
+	for (int i = 0; i < M; ++i) {
+		int id = wildRemaining[i];
+		defeatCostPrefix[i + 1] = defeatCostPrefix[i] + pokemons[id].currentHp;
+	}
+	for (int i = M - 1; i >= 0; --i) {
+		int id = wildRemaining[i];
+		// 捕まえるコスト：現在のHPから捕獲可能HPを引いた分（すでに圏内なら0）
+		int catchCost = max(0, pokemons[id].currentHp - g_baseData[id].captureHp);
+		catchCostSuffix[i] = catchCostSuffix[i + 1] + catchCost;
+		catchBonusSuffix[i] = catchBonusSuffix[i + 1] + g_baseData[id].totalDamage;
+	}
+
+	int defeatCount = 0;
+	for (int k = 0; k <= M; ++k)
+	{
+		int availableDamage = currentDamage + catchBonusSuffix[k];
+		int requiredDamage = defeatCostPrefix[k] + catchCostSuffix[k];
+		if (availableDamage >= requiredDamage)
+			defeatCount = k;
+		else
+			break;
+	}
+
+	defeatTargets.assign(wildRemaining.begin(), wildRemaining.begin() + defeatCount);
+	catchTargets.assign(wildRemaining.begin() + defeatCount, wildRemaining.end());
+
+	// フェーズ1の状態をリセット
+	phase1Complete = catchTargets.empty();
+	catchPlanTargetId = -1;
+	catchPlan.clear();
+}
+
 
 /******************************************************/
 
@@ -319,6 +416,10 @@ int main()
 		int catchPlanTargetId = -1;
 		vector<pair<int, int>> catchPlan;
 
+		// 再戦略決定済みフラグ
+		// ストック枯渇時に一度だけ再決定し、次の捕獲が発生するまで再決定しない
+		bool reDecideDone = false;
+
 
 		////////////////////
 		// メインループ   //
@@ -381,6 +482,21 @@ int main()
 					pokemons[catchId].remainingMoveCount[0] = g_baseData[catchId].maxMoveCount[0];
 					pokemons[catchId].remainingMoveCount[1] = g_baseData[catchId].maxMoveCount[1];
 					cout << 2 << " " << catchId << "\n";
+					// 捕獲が発生したので再戦略フラグをリセット
+					reDecideDone = false;
+					continue;
+				}
+
+				//---------------------------------------------------------------------
+				// ストックが尽きており、かつ phase1Complete の場合は再戦略決定を行う
+				// reDecideDone が false のときのみ実行（1サイクル1回に限定）
+				//---------------------------------------------------------------------
+				if (phase1Complete && !reDecideDone)
+				{
+					ReDecideStrategy(N, pokemons, handIds,
+						defeatTargets, catchTargets,
+						phase1Complete, catchPlanTargetId, catchPlan);
+					reDecideDone = true;
 					continue;
 				}
 			}
